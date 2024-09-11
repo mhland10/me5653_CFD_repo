@@ -18,7 +18,7 @@ from numba import njit, prange, jit
 #
 ###################################################################################################
 
-@njit( nogil = True , parallel = True )
+@njit( nogil = True , parallel = True , cache = True )
 def factorial_array_numba( x ):
     y = np.zeros( np.shape( x ) )
 
@@ -37,7 +37,7 @@ def factorial_array_numba( x ):
 
 @njit( nogil = True , cache = True )
 def factorial_numba( x ):
-    c = np.arange( 1 , x )
+    c = np.arange( 1 , x + 1 )
     y = np.prod( c )
 
     return y
@@ -72,29 +72,27 @@ def gradientCoefficients( nOrderDerivative , negSidePoints , posSidePoints , nOr
     
     """
 
-    n_template = negSidePoints + posSidePoints
+    n_template = negSidePoints + posSidePoints + 1
     # Calcualte the number of points in the template
     if nOrderAccuracy > n_template+1 :
         raise ValueError( "Too few points input for the order of derivative" )
-    print(  "There are {x} points in the template: {y} on the LHS and {z} on the RHS".format( x = n_template , y = negSidePoints , z = posSidePoints )   )
+    #print(  "There are {x} points in the template: {y} on the LHS and {z} on the RHS".format( x = n_template , y = negSidePoints , z = posSidePoints )   )
 
-    if negSidePoints == posSidePoints:
-        points = [ x for x in range( -negSidePoints , posSidePoints + 1 ) if x != 0 ]
-        nOrderAccuracy = len( points )
-    else:
-        points = [ x for x in range( -negSidePoints , posSidePoints + 1 ) ]
-        nOrderAccuracy = len( points )
-    print( "With points:\t" + str( points ) )
+    points = [ x for x in range( -negSidePoints , posSidePoints + 1 ) ]
+    nOrderAccuracy = len( points )
+    #print( "With points:\t" + str( points ) )
     
     taylor_series_coeffs = np.ones( ( nOrderAccuracy ,) + ( nOrderAccuracy ,) )
     # Generate a matrix that contains the coefficients
     for i in range( nOrderAccuracy ):
         for j in range( nOrderAccuracy ):
             p = points[j]
-            #print( "For i={x} and j={y}".format( x = i , y = j ) )
+            print( "For i={x} and j={y}".format( x = i , y = j ) )
             #print( "\tp is "+str(p) )
             #c = ( p ** i ) / np.max( [ spsp.factorial( i ) , 1 ] )
-            c = ( p ** i ) / np.asarray( [ factorial_numba( i ) , 1 ] ).max()
+            fracs = np.asarray( [ factorial_numba( i ) , 1 ] ).max()
+            print( "\tfactorial is " + str( fracs ) )
+            c = ( p ** i ) / fracs
             #print( "\tThe coefficient is {x}".format( x = c ) )
             taylor_series_coeffs[i,j] = c
         print(" ")
