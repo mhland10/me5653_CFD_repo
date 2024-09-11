@@ -87,21 +87,21 @@ def gradientCoefficients( nOrderDerivative , negSidePoints , posSidePoints , nOr
     for i in range( nOrderAccuracy ):
         for j in range( nOrderAccuracy ):
             p = points[j]
-            print( "For i={x} and j={y}".format( x = i , y = j ) )
+            #print( "For i={x} and j={y}".format( x = i , y = j ) )
             #print( "\tp is "+str(p) )
             #c = ( p ** i ) / np.max( [ spsp.factorial( i ) , 1 ] )
             fracs = np.asarray( [ factorial_numba( i ) , 1 ] ).max()
-            print( "\tfactorial is " + str( fracs ) )
+            #print( "\tfactorial is " + str( fracs ) )
             c = ( p ** i ) / fracs
             #print( "\tThe coefficient is {x}".format( x = c ) )
             taylor_series_coeffs[i,j] = c
         print(" ")
     # and fill out this matrix
-    print( "\nTaylor series coefficients are:\n"+str( taylor_series_coeffs ) )
+    #print( "\nTaylor series coefficients are:\n"+str( taylor_series_coeffs ) )
 
     b = np.zeros( nOrderAccuracy )
     b[nOrderDerivative] = 1
-    print("b vector:\t"+str(b))
+    #print("b vector:\t"+str(b))
     coeffs = np.linalg.solve( taylor_series_coeffs , b )
     # Calculate the coefficients from the Taylor series coefficients
             
