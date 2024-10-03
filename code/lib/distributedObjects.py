@@ -181,3 +181,213 @@ class numericalGradient:
             raise ValueError( "Invalid method selected" )
         
         return gradient
+    
+##################################################################################################
+#
+# Heat Equation Object
+#
+##################################################################################################
+
+class heatEquation:
+
+    def __init__( self , x , u_0 , t_domain , alpha = None , dt = None , S = None , 
+                 solver = "FTCS" , BCs_maintained = True ):
+        """
+
+        This object provides a solver for the heat equation. 
+
+        Heat equation
+
+        del(u)/del(t) = alpha * del^2(u)/del(x)^2
+
+        A note on units:    Units must either be in SI or in an equivalent unit system.
+
+        Args:
+            x [float]:      [m] The spatial mesh that will be used for the heat equation solve.
+
+                            Note as of 2024/10/03:  Must be uniform mesh.
+
+            u_0 [float]:    [?] The function values for the heat equation solve. Must correspond 
+                                to the mesh in "x".
+
+            t_domain (float):   The (2x) entry tuple that describes the time domain that the solve
+                                    will be performed over. The entries must be:
+
+                                ( t_start , t_end )
+
+            alpha (float, optional):    [m2/s]The dissipation coefficient value. Must be numerical
+                                            value if "S" is None.
+                                            
+                                        *None.
+
+            dt (float, optional):       [s] The uniform time step. Must be numerical value is "S" 
+                                            is None. 
+                                            
+                                        *None.
+
+            S (float, optional):        The stability factor of the heat equation solve. Must be
+                                            numerical value if "alpha" and "dt" are None.
+                                             
+                                        *None.
+
+            solver (string, optional):  The solver that will be used to solve the heat equation.
+                                            The valid options are:
+
+                                        *"FTCS" - Forward in Time, Central in Space.
+
+                                        Not case sensitive.
+
+            BCs_maintained (boolean, optional): Whether the boundary conditions defined in u_0
+                                                    will be maintained. 
+
+        Attributes:
+
+            x   <-  Args of the same
+
+            Nx (float):     The number of points along the 1st coordinate of x.
+
+            dx (float):     The uniform mesh size in space.
+
+            S (float):      The stability factor of the explicit method to be used.
+
+            alpha (float):  The dissipation coefficient
+
+            u_0 <-
+            
+        """
+
+        if not np.shape( x ) == np.shape( u_0 ):
+            raise ValueError( "Function values are of not the same shape." )
+        
+        #
+        # Write domain
+        #
+        self.x = x
+        self.Nx = np.shape( x )[0]
+
+        dx_s = np.gradient( self.x )
+        ddx_s = np.gradient( dx_s )
+        if ( np.sum( ddx_s ) / np.sum( dx_s ) ) > 1e-3 :
+            raise ValueError( "x is not uniform enough." )
+        else:
+            self.dx = np.mean( dx_s )
+
+        #
+        # Sort out time stepping & dissipation
+        #
+        if S:
+            self.S = S
+            if alpha and dt:
+                raise ValueError( "S is present along with both alpha and dt. Problem is overconstrained. Only one of alpha and dt must be present with S." )
+            elif alpha:
+                self.alpha = alpha
+                self.dt = self.S * ( self.dx ** 2 ) / self.alpha
+            elif dt:
+                self.dt = dt
+                self.alpha = self.S * ( self.dx ** 2 ) / self.dt
+        else:
+            if alpha and dt:
+                self.alpha = alpha
+                self.dt = dt
+                self.S = self.alpha * self.dt / ( self.dx ** 2 )
+            else:
+                if alpha:
+                    raise ValueError( "alpha is present, but not dt or S. Problem is underconstrained." )
+                elif dt:
+                    raise ValueError( "dt is present, but not alpha or S. Problem is underconstrained." )
+                
+        #
+        # Set up time domain
+        #
+        self.t = np.arange( t_domain[0] , t_domain[-1] , self.dt )
+        self.Nt = len( self.t )
+
+        #
+        # Set up the function values
+        #
+        self.u = np.zeros( ( self.Nt , self.Nx ) )
+        self.u[0,...] = u_0
+
+        #
+        # Set up solver
+        #
+        self.solver = solver.lower()
+        self.BC_maintain = BCs_maintained
+
+    def solve( cls ):
+        """
+        This method solves the heat equation. 
+
+        There are a few things to note with the method. First, the system of equations is
+            described as linear equations stored in a diagonal-sparse matrix supplied by SciPy.
+            This is done to avoid using extremely large matrices that are stored.
+
+        The system of linear equations can be simply represented as follows:
+
+        [A]<u> = <b> = [C]<v>
+
+        Note as of 2024/10/03:  The C-matrix that is used to calculate the next time step is
+                                    calculated outside of the time step due to the uniformity
+                                    outside of time. This may need to be changed in the future.
+
+        Attributes:
+
+        time_gradient [SciPy sparse DIA - float]:   The sparse matrix that defines the time 
+                                                        gradient's contribution to the C matrix.
+
+        grad_matrix [SciPy sparse DIA - float]:     The sparse matrix that defines the spatial
+                                                        gradient's contribution to the C matrix.
+
+        C [SciPy sparse DIA - float]:   The C matrix as described above that allows for a RHS SLE
+                                            for solving the SLE.
+
+        <u> [float]:    The function values will be modified in this method.
+
+        """
+
+        #
+        # Calculate the C matrix to be used in the time stepping
+        #
+        if cls.solver == "ftcs":
+            num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
+            num_gradient.formMatrix( cls.Nx )
+
+            cls.time_gradient = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+        else:
+            raise ValueError("Invalid solver selected.")
+        cls.grad_matrix = num_gradient.gradientMatrix
+        cls.C = cls.time_gradient + cls.grad_matrix * cls.S
+
+
+        for i in range( cls.Nt - 1 ):
+            b = cls.C.dot( cls.u[i] )
+
+            cls.u[i+1,:] = b
+            if cls.BC_maintain:
+                cls.u[i+1,0] = cls.u[i,0]
+                cls.u[i+1,-1] = cls.u[i,-1]
+
+    def exact( cls , m ):
+
+        cls.u_exact = np.zeros( np.shape( cls.u ) )
+        cls.u_exact[0,...] = cls.u[0,...]
+
+        for i in range( 1 , cls.Nt ):
+            Sigmas = np.zeros( (m,) + np.shape( cls.u_exact[i-1,...] ) )
+            ms = np.arange( m ) + 1
+            for ii , mm in enumerate( ms ):
+                L = np.max( cls.x ) - np.min( cls.x )
+                T = np.max( cls.t ) - np.min( cls.t )
+                exponent = np.exp( - cls.alpha * cls.t[i] * ( ( mm * np.pi / L ) ** 2 ) )
+                #print("Exponent shape:\t"+str(np.shape(exponent)))
+                amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
+                #print("Amplitude shape:\t"+str(np.shape(amplitude)))
+                sine = np.sin( mm * np.pi * cls.x / L )
+                #print("Sine shape:\t"+str(np.shape(sine)))
+                Sigmas[ii,...] = exponent * amplitude * sine
+            cls.u_exact[i,...] = cls.u_exact[i-1,0] + 2 * ( cls.u_exact[0,...] - cls.u_exact[i-1,0] ) * np.sum( Sigmas , axis = 0 )
+
+            
+
+
+

@@ -35,8 +35,30 @@ def factorial_array_numba( x ):
 
     return y
 
+def factorial_array( x ):
+    y = np.zeros( np.shape( x ) )
+
+    x_flatten = x.flatten()
+    y_flatten = y.flatten()
+    for i in prange( len( y_flatten ) ):
+        if x_flatten[i] > 0:
+            c = np.arange( 1 , x_flatten[i] )
+            y_flatten[i] = np.prod( c )
+        else:
+            y_flatten[i] = 0
+    
+    y = y_flatten.reshape( np.shape(y) )
+
+    return y
+
 @njit( nogil = True , cache = True )
 def factorial_numba( x ):
+    c = np.arange( 1 , x + 1 )
+    y = np.prod( c )
+
+    return y
+
+def factorial( x ):
     c = np.arange( 1 , x + 1 )
     y = np.prod( c )
 
@@ -90,7 +112,7 @@ def gradientCoefficients( nOrderDerivative , negSidePoints , posSidePoints , nOr
             #print( "For i={x} and j={y}".format( x = i , y = j ) )
             #print( "\tp is "+str(p) )
             #c = ( p ** i ) / np.max( [ spsp.factorial( i ) , 1 ] )
-            fracs = np.asarray( [ factorial_numba( i ) , 1 ] ).max()
+            fracs = np.asarray( [ factorial( i ) , 1 ] ).max()
             #print( "\tfactorial is " + str( fracs ) )
             c = ( p ** i ) / fracs
             #print( "\tThe coefficient is {x}".format( x = c ) )
@@ -147,7 +169,7 @@ def gradientCoefficients_numba( nOrderDerivative , negSidePoints , posSidePoints
     for i in prange( nOrderAccuracy ):
         for j in prange( nOrderAccuracy ):
             p = points[j]
-            c = ( p ** i ) / factorial_numba( i )
+            c = ( p ** i ) / factorial( i )
             taylor_series_coeffs[i,j] = c
     # and fill out this matrix
 
