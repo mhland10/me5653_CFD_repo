@@ -356,8 +356,17 @@ class heatEquation:
         else:
             raise ValueError("Invalid solver selected.")
         cls.grad_matrix = num_gradient.gradientMatrix
-        cls.C = cls.time_gradient + cls.grad_matrix * cls.S
+        cls.C_raw = cls.time_gradient + cls.grad_matrix * cls.S
 
+        #
+        # Include Boundary Conditions
+        #
+        C_csr = cls.C_raw.tocsr()
+        C_csr[0,0] = 1
+        C_csr[0,1:] = 0
+        C_csr[-1,-1] = 1
+        C_csr[-1,:-2] = 0
+        cls.C = C_csr.todia()
 
         for i in range( cls.Nt - 1 ):
             b = cls.C.dot( cls.u[i] )
@@ -368,6 +377,13 @@ class heatEquation:
                 cls.u[i+1,-1] = cls.u[i,-1]
 
     def exact( cls , m ):
+        """
+        This method calculates an exact solution to the heat equation.
+
+        Args:
+            m (int):    The number of terms in the exponential Fourier series.
+
+        """
 
         cls.u_exact = np.zeros( np.shape( cls.u ) )
         cls.u_exact[0,...] = cls.u[0,...]
@@ -380,7 +396,8 @@ class heatEquation:
                 T = np.max( cls.t ) - np.min( cls.t )
                 exponent = np.exp( - cls.alpha * cls.t[i] * ( ( mm * np.pi / L ) ** 2 ) )
                 #print("Exponent shape:\t"+str(np.shape(exponent)))
-                amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
+                #amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
+                amplitude = 1
                 #print("Amplitude shape:\t"+str(np.shape(amplitude)))
                 sine = np.sin( mm * np.pi * cls.x / L )
                 #print("Sine shape:\t"+str(np.shape(sine)))
