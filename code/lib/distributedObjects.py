@@ -235,6 +235,8 @@ class heatEquation:
 
                                         *"FTCS" - Forward in Time, Central in Space.
 
+                                        "CN"    - Crank-Nicolson, central in time and space.
+
                                         Not case sensitive.
 
             BCs_maintained (boolean, optional): Whether the boundary conditions defined in u_0
@@ -348,15 +350,33 @@ class heatEquation:
         #
         # Calculate the C matrix to be used in the time stepping
         #
-        if cls.solver == "ftcs":
+        if ( cls.solver == "ftcs" ) | ( cls.solver == "cn" ):
             num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
             num_gradient.formMatrix( cls.Nx )
+            cls.grad_matrix_C = num_gradient.gradientMatrix
 
-            cls.time_gradient = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.time_gradient_C = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
         else:
             raise ValueError("Invalid solver selected.")
-        cls.grad_matrix = num_gradient.gradientMatrix
-        cls.C_raw = cls.time_gradient + cls.grad_matrix * cls.S
+        cls.C_raw = cls.time_gradient_C + cls.grad_matrix_C * cls.S
+
+        #
+        # Calculate the A matrix to be used in the stime stepping
+        #
+        if cls.solver == "ftcs":
+            cls.time_gradient_A = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.grad_matrix_A = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        elif cls.solver == "cn":
+            num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
+            num_gradient.formMatrix( cls.Nx )
+            cls.grad_matrix_A = num_gradient.gradientMatrix
+            cls.time_gradient_A = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        else:
+            raise ValueError("Invalid solver selected. How did you make it this far?")
+        cls.A_raw = cls.time_gradient_A + cls.grad_matrix_A * cls.S
+
 
         #
         # Include Boundary Conditions
@@ -365,16 +385,23 @@ class heatEquation:
         C_csr[0,0] = 1
         C_csr[0,1:] = 0
         C_csr[-1,-1] = 1
-        C_csr[-1,:-2] = 0
+        C_csr[-1,:-1] = 0
         cls.C = C_csr.todia()
+        A_csr = cls.A_raw.tocsr()
+        A_csr[0,0] = 1
+        A_csr[0,1:] = 0
+        A_csr[-1,-1] = 1
+        A_csr[-1,:-1] = 0
+        cls.A = A_csr.todia()
 
+        #
+        # Time-Marching Solve
+        #
         for i in range( cls.Nt - 1 ):
-            b = cls.C.dot( cls.u[i] )
+            v = cls.u[i]
+            b = cls.C.dot( v )
 
-            cls.u[i+1,:] = b
-            if cls.BC_maintain:
-                cls.u[i+1,0] = cls.u[i,0]
-                cls.u[i+1,-1] = cls.u[i,-1]
+            cls.u[i+1,:] = spsr.linalg.spsolve( cls.A , b )
 
     def exact( cls , m ):
         """
@@ -396,10 +423,10 @@ class heatEquation:
                 T = np.max( cls.t ) - np.min( cls.t )
                 exponent = np.exp( - cls.alpha * cls.t[i] * ( ( mm * np.pi / L ) ** 2 ) )
                 #print("Exponent shape:\t"+str(np.shape(exponent)))
-                #amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
-                amplitude = 1
+                amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
+                #amplitude = 1
                 #print("Amplitude shape:\t"+str(np.shape(amplitude)))
-                sine = np.sin( mm * np.pi * cls.x / L )
+                sine = np.cos( mm * np.pi * cls.x / L )
                 #print("Sine shape:\t"+str(np.shape(sine)))
                 Sigmas[ii,...] = exponent * amplitude * sine
             cls.u_exact[i,...] = cls.u_exact[i-1,0] + 2 * ( cls.u_exact[0,...] - cls.u_exact[i-1,0] ) * np.sum( Sigmas , axis = 0 )
