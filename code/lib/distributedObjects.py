@@ -237,6 +237,9 @@ class heatEquation:
 
                                         "CN"    - Crank-Nicolson, central in time and space.
 
+                                        "DF"    - Dufort-Frankel, central in time and space. With
+                                                    a 2/3 time step.
+
                                         Not case sensitive.
 
             BCs_maintained (boolean, optional): Whether the boundary conditions defined in u_0
@@ -326,7 +329,9 @@ class heatEquation:
 
         The system of linear equations can be simply represented as follows:
 
-        [A]<u> = <b> = [C]<v>
+        [A]<u> = <b> = [C]<v> + [D]<w>
+
+        Where 
 
         Note as of 2024/10/03:  The C-matrix that is used to calculate the next time step is
                                     calculated outside of the time step due to the uniformity
@@ -356,6 +361,10 @@ class heatEquation:
             cls.grad_matrix_C = num_gradient.gradientMatrix
 
             cls.time_gradient_C = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+        elif cls.solver == "df":
+            cls.grad_matrix_C = spsr.dia_matrix( ( 2 * np.ones( ( 2 , cls.Nx ) ) , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.time_gradient_C = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
         else:
             raise ValueError("Invalid solver selected.")
         cls.C_raw = cls.time_gradient_C + cls.grad_matrix_C * cls.S
@@ -373,10 +382,27 @@ class heatEquation:
             cls.grad_matrix_A = num_gradient.gradientMatrix
             cls.time_gradient_A = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
 
+        elif cls.solver == "df":
+            cls.time_gradient_A = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.grad_matrix_A = spsr.dia_matrix( ( 2 * np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
         else:
             raise ValueError("Invalid solver selected. How did you make it this far?")
         cls.A_raw = cls.time_gradient_A + cls.grad_matrix_A * cls.S
 
+        #
+        # Calculate the D matrix to be used in the time stepping
+        #
+        if ( cls.solver == "ftcs" ) | ( cls.solver == "cn" ):
+            cls.time_gradient_D = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.grad_matrix_D = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        elif cls.solver == "df":
+            cls.time_gradient_D = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.grad_matrix_D = spsr.dia_matrix( ( -2 * np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+        else:
+            raise ValueError("Invalid solver selected. How did you make it through 2 checks?")
+        cls.D_raw = cls.time_gradient_D + cls.grad_matrix_D * cls.S
 
         #
         # Include Boundary Conditions
@@ -393,13 +419,29 @@ class heatEquation:
         A_csr[-1,-1] = 1
         A_csr[-1,:-1] = 0
         cls.A = A_csr.todia()
+        D_csr = cls.D_raw.tocsr()
+        D_csr[0,0] = 0
+        D_csr[0,1:] = 0
+        D_csr[-1,-1] = 0
+        D_csr[-1,:-1] = 0
+        cls.D = D_csr.todia()
 
         #
         # Time-Marching Solve
         #
         for i in range( cls.Nt - 1 ):
+
+            # Set up previous time step data
             v = cls.u[i]
             b = cls.C.dot( v )
+
+            # Set up (2x) previous time step data
+            if i > 1 :
+                w = cls.u[i-1]
+                b += cls.D.dot( w )
+            elif cls.D.sum() > 0:
+                w = cls.u[i]
+                b += cls.D.dot( w )
 
             cls.u[i+1,:] = spsr.linalg.spsolve( cls.A , b )
 
