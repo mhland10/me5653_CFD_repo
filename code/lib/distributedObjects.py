@@ -465,23 +465,52 @@ class heatEquation:
         cls.u_exact = np.zeros( np.shape( cls.u ) )
         cls.u_exact[0,...] = cls.u[0,...]
 
+        cls.L = np.max( cls.x ) - np.min( cls.x )
+        T = np.max( cls.t ) - np.min( cls.t )
+
+        #Sigstore = np.zeros( ( cls.Nt , m ,) + np.shape( cls.u_exact[0,...] ) )
+        cls.mult = np.zeros( np.shape( cls.u ) )
+
         for i in range( 1 , cls.Nt ):
             Sigmas = np.zeros( (m,) + np.shape( cls.u_exact[i-1,...] ) )
-            ms = np.arange( m ) + 1
+            ms = 2 * np.arange( m ) + 1
             for ii , mm in enumerate( ms ):
-                L = np.max( cls.x ) - np.min( cls.x )
-                T = np.max( cls.t ) - np.min( cls.t )
-                exponent = np.exp( - cls.alpha * cls.t[i] * ( ( mm * np.pi / L ) ** 2 ) )
-                #print("Exponent shape:\t"+str(np.shape(exponent)))
+                #print("mm:\t"+str(mm))
+                exponent = np.exp( - cls.alpha * cls.t[i] * ( ( mm * np.pi / cls.L ) ** 2 ) )
+                #exponent = - cls.alpha * cls.t[i] * ( ( mm * np.pi / L ) ** 2 )
+                #exponent = ( ( mm * np.pi / L ) ** 2 )
+                #exponent = 1
+                #print("\tExponent shape:\t"+str(np.shape(exponent)))
+                #print("\tExponent:\t"+str(exponent))
                 amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
                 #amplitude = 1
                 #print("Amplitude shape:\t"+str(np.shape(amplitude)))
-                sine = np.sin( mm * np.pi * cls.x / ( L ) )
+                #print("\tAmplitude:\t"+str(amplitude))
+                sine = np.sin( mm * np.pi * cls.x / ( cls.L ) )
+                #sine = 1
                 #print("Sine shape:\t"+str(np.shape(sine)))
+                #print("\tSine:\t"+str(sine))
                 Sigmas[ii,...] = exponent * amplitude * sine
-            cls.u_exact[i,...] = cls.u_exact[i-1,0] + 2 * ( cls.u_exact[0,...] - cls.u_exact[i-1,0] ) * np.sum( Sigmas , axis = 0 )
 
+            cls.mult[i,...] = np.sum( Sigmas , axis = 0 )
+            cls.u_exact[i,...] = cls.u_exact[0,0] - 2 * ( cls.u[0,0] - cls.u[0,...] ) * cls.mult[i,...]
+            #cls.u_exact[i,...] = np.sum( Sigmas , axis = 0 )
             
+            #cls.Sigstore[i,...] = Sigmas
+
+    def error( cls ):
+        """
+        This method serves as the calculation of error from the exact solution.
+
+        Note:   The method "exact(m)" must be run before this
+
+        """
+
+        cls.error_raw = cls.u - cls.u_exact
+        cls.error_abs = np.abs( cls.error_raw )
+        cls.error_inf = np.max( cls.error_raw , axis = 0 )
+        cls.error_rms = np.linalg.norm( cls.error_raw , axis = 1 )
+
 
 
 
