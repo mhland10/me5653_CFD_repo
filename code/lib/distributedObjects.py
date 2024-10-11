@@ -355,12 +355,20 @@ class heatEquation:
         #
         # Calculate the C matrix to be used in the time stepping
         #
-        if ( cls.solver == "ftcs" ) | ( cls.solver == "cn" ):
+        if ( cls.solver == "ftcs" ):
             num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
             num_gradient.formMatrix( cls.Nx )
             cls.grad_matrix_C = num_gradient.gradientMatrix
 
             cls.time_gradient_C = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        elif cls.solver == "cn":
+            num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
+            num_gradient.formMatrix( cls.Nx )
+            cls.grad_matrix_C = (1/2) * num_gradient.gradientMatrix
+
+            cls.time_gradient_C = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
         elif cls.solver == "df":
             cls.grad_matrix_C = spsr.dia_matrix( ( 2 * np.ones( ( 2 , cls.Nx ) ) , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
             cls.time_gradient_C = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
@@ -379,7 +387,7 @@ class heatEquation:
         elif cls.solver == "cn":
             num_gradient = numericalGradient( 2 , ( 1 , 1 ) )
             num_gradient.formMatrix( cls.Nx )
-            cls.grad_matrix_A = num_gradient.gradientMatrix
+            cls.grad_matrix_A = (-1/2) * num_gradient.gradientMatrix
             cls.time_gradient_A = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
 
         elif cls.solver == "df":
@@ -407,19 +415,19 @@ class heatEquation:
         #
         # Include Boundary Conditions
         #
-        C_csr = cls.C_raw.tocsr()
+        C_csr = cls.C_raw.tolil()
         C_csr[0,0] = 1
         C_csr[0,1:] = 0
         C_csr[-1,-1] = 1
         C_csr[-1,:-1] = 0
         cls.C = C_csr.todia()
-        A_csr = cls.A_raw.tocsr()
+        A_csr = cls.A_raw.tolil()
         A_csr[0,0] = 1
         A_csr[0,1:] = 0
         A_csr[-1,-1] = 1
         A_csr[-1,:-1] = 0
         cls.A = A_csr.todia()
-        D_csr = cls.D_raw.tocsr()
+        D_csr = cls.D_raw.tolil()
         D_csr[0,0] = 0
         D_csr[0,1:] = 0
         D_csr[-1,-1] = 0
@@ -468,7 +476,7 @@ class heatEquation:
                 amplitude = ( 1 - ( -1 ** mm ) ) / ( mm * np.pi )
                 #amplitude = 1
                 #print("Amplitude shape:\t"+str(np.shape(amplitude)))
-                sine = np.cos( mm * np.pi * cls.x / L )
+                sine = np.sin( mm * np.pi * cls.x / ( L ) )
                 #print("Sine shape:\t"+str(np.shape(sine)))
                 Sigmas[ii,...] = exponent * amplitude * sine
             cls.u_exact[i,...] = cls.u_exact[i-1,0] + 2 * ( cls.u_exact[0,...] - cls.u_exact[i-1,0] ) * np.sum( Sigmas , axis = 0 )
