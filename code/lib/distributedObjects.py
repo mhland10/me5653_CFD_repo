@@ -504,13 +504,237 @@ class heatEquation:
 
         Note:   The method "exact(m)" must be run before this
 
+
         """
 
-        cls.error_raw = cls.u - cls.u_exact
+        cls.error_raw = cls.u_exact - cls.u
         cls.error_abs = np.abs( cls.error_raw )
         cls.error_inf = np.max( cls.error_raw , axis = 0 )
         cls.error_rms = np.linalg.norm( cls.error_raw , axis = 1 )
 
+    def amplificationFactor( cls , error_type = "raw" , timestep = None ):
+        """
+        This method calculates the amplification factor from the error,
+
+        Note:   The method "error()" must be run before this
+
+        Args:
+
+        error_type (str, optional) :    Which error the method will use to calculate the 
+                                            amplification factor. The valid options are:
+
+                                        *"raw": Raw error values
+
+                                        "abs":  Absolute value of error
+
+                                        "inf":  Maximum error value for the time point
+
+                                        "rms":  The root mean square error for the time point
+
+                                        Not case sensitive.
+
+        """
+
+        if error_type.lower()=="raw":
+            if timestep:
+                error_use = cls.error_raw[timestep]
+            else:
+                error_use = np.sum( cls.error_raw , axis = 0 ) / len( cls.t )
+        elif error_type.lower()=="abs":
+            if timestep:
+                error_use = cls.error_abs[timestep]
+            else:
+                error_use = np.sum( cls.error_abs , axis = 0 ) / len( cls.t )
+        elif error_type.lower()=="inf":
+            error_use = cls.error_inf
+        elif error_type.lower()=="rms":
+            error_use = cls.error_rms
+        else:
+            raise ValueError( "Invalid error type selected" )
+        
+        """
+        cls.G = np.zeros( ( len( error_use ) - 1 ) )
+        for i in range( len( cls.G ) ):
+            cls.G[i] = error_use[i+1] / error_use[i]
+        """
+        cls.G = np.fft.rfft( error_use ) / ( np.fft.rfft( error_use )[0] )
+
+        A_e =  np.fft.rfft( cls.u_exact ) - np.fft.rfft( cls.u )
+        cls.A_error = A_e
 
 
+##################################################################################################
+#
+# Burgers Equation Object
+#
+##################################################################################################
 
+class burgersEquation:
+    """
+    This object allows a user to solve a Burger's equation. See HW3 for more detail.
+
+    """
+    def __init__( self , x , u_0 , t_domain , dt=None , C=None , solver="lax" ):
+        """
+        Initialize the Burger's equation object.
+
+        Args:
+            x [float]:  [m] The spatial mesh that will be used for the Burger's equation solve.
+
+                        Note as of 2024/10/31:  Must be uniform mesh.
+
+            u_0 [float]:    [?] The function values for the Burger's equation solve. Must
+                                correspond to the mesh in "x".
+
+            t_domain (float):   The (2x) entry tuple that describes the time domain that the
+                                    solve will be preformed over. The entires must be:
+
+                                ( t_start , t_end )
+
+            dt (float, optional):   [s] The uniform time step. Must be numerical value if "C" is
+                                        None. Defaults to None.
+
+            C (float, optional):    [m/s] The C factor of the Burger's equation solve. Must be
+                                        numerical value if "dt" is None. Defaults to None.
+
+            solver (str, optional): The solver that will be used to solve the Burger's equation.
+                                        The valid options are:
+
+                                    *"LAX": Lax method.
+                                        
+                                    Defaults to "lax". Not case sensitive.
+
+        """
+
+        if not np.shape( x )==np.shape( u_0 ):
+            raise ValueError("x and u_0 must be the same shape.")
+        
+        #
+        # Write domain
+        #
+        self.x = x
+        self.Nx = np.shape( x )[0]
+
+        dx_s = np.gradient( self.x )
+        ddx_s = np.gradient( dx_s )
+        if ( np.sum( ddx_s ) / np.sum( dx_s ) ) > 1e-3 :
+            raise ValueError( "x is not uniform enough." )
+        else:
+            self.dx = np.mean( dx_s )
+
+        #
+        # Sort out time stepping & dissipation
+        #
+        if C:
+            self.C = C
+            if dt:
+                raise ValueError( "S is present along with dt. Problem is overconstrained. Only one of C and dt must be present." )
+            else:
+                self.dt = self.C * self.dx
+        else:
+            self.dt = dt
+            self.C = self.dt / self.dx
+
+        #
+        # Set up time domain
+        #
+        self.t = np.arange( t_domain[0] , t_domain[-1] , self.dt )
+        self.Nt = len( self.t )
+
+        #
+        # Set up the function values
+        #
+        self.u = np.zeros( ( self.Nt , self.Nx ) )
+        self.u[0,...] = u_0
+
+        #
+        # Set up solver
+        #
+        self.solver = solver.lower()
+    
+    def solve( cls , N_spatialorder=1 , N_timeorder=1 , BC="consistent" ):
+        """
+        This method solves the Burger's equation for the object according to the inputs 
+            to the object and method.
+
+        There are a few things to note with the method. First, the system of equations is
+            described as linear equations stored in a diagonal-sparse matrix supplied by SciPy.
+            This is done to avoid using extremely large matrices that are stored.
+
+        The system of linear equations can be simply represented as follows:
+
+        [A]<u> = <b> = [C]<v> + [D]<w>
+
+        Here, <v> is the previous time step and <w> is the previous time step squared, in
+            accordance tot he flux transfer method.
+
+        This method will march in time
+
+        Args:
+            N_spatialorder (int, optional): Spatial order for the solve. Defaults to 1.
+
+            N_timeorder (int, optional):    Time order for the solve. Defaults to 1.
+        
+        """
+
+        #
+        # Calculate A matrix
+        #
+        if cls.solver.lower()=="lax":
+            cls.A_matrix = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        #
+        # Calculate C matrix
+        #
+        if cls.solver.lower()=="lax":
+            cls.C_matrix = (1/2) * spsr.dia_matrix( ( [ np.ones( cls.Nx - 1 ) , np.ones( cls.Nx - 1 ) ] , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        #
+        # Calculate D matrix
+        #
+        if cls.solver.lower()=="lax":
+            cls.num_grad = numericalGradient( 1 , ( N_spatialorder//2 , N_spatialorder//2 ) )
+            cls.num_grad.formMatrix( cls.Nx )
+            cls.D_matrix = cls.C * cls.num_grad.gradientMatrix
+
+        #
+        # Set up boundary conditions
+        #
+        if BC.lower()=="consistent":
+            cls.C_matrix = cls.C_matrix.tolil()
+            cls.D_matrix = cls.D_matrix.tolil()
+            cls.C_matrix[0,0]=1
+            cls.C_matrix[0,1:]=0
+            cls.C_matrix[-1,-1]=1
+            cls.C_matrix[-1,:-1]=0
+            cls.D_matrix[0,:]=0
+            cls.D_matrix[-1,:]=0
+            cls.C_matrix = cls.C_matrix.todia()
+            cls.D_matrix = cls.D_matrix.todia()
+
+        
+        #
+        # Initialize vectors
+        #
+        cls.v = np.zeros_like( cls.u )
+        cls.w = np.zeros_like( cls.u )
+        cls.b = np.zeros_like( cls.u )
+
+        #
+        # Time stepping
+        #
+        for i in range( len( cls.t )-1 ):
+
+            # Calculate v vector
+            cls.v[i,...] = cls.u[i,...]
+
+            # Calculate w vector
+            cls.w[i,...] = (1/2) * ( cls.u[i,...] ** 2 )
+
+            # Calculate b vector
+            cls.b[i,...] = cls.C_matrix.dot( cls.v[i,...] ) + cls.D_matrix.dot( cls.w[i,...] )
+
+            # Solve u = A\b
+            cls.u[i+1,:] = spsr.linalg.spsolve( cls.A_matrix , cls.b[i,...] )
+
+        
