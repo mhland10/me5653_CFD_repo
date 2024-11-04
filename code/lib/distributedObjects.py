@@ -696,6 +696,7 @@ class burgersEquation:
             cls.num_grad = numericalGradient( 1 , ( N_spatialorder//2 , N_spatialorder//2 ) )
             cls.num_grad.formMatrix( cls.Nx )
             cls.D_matrix = cls.C * cls.num_grad.gradientMatrix
+            ### TODO: ADD in boundary modificiations
 
         #
         # Set up boundary conditions
@@ -705,7 +706,7 @@ class burgersEquation:
             cls.D_matrix = cls.D_matrix.tolil()
             cls.C_matrix[0,0]=1
             cls.C_matrix[0,1:]=0
-            cls.C_matrix[-1,-1]=1
+            cls.C_matrix[-1,-1]=0
             cls.C_matrix[-1,:-1]=0
             cls.D_matrix[0,:]=0
             cls.D_matrix[-1,:]=0
