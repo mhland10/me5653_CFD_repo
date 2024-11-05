@@ -574,7 +574,7 @@ class burgersEquation:
     This object allows a user to solve a Burger's equation. See HW3 for more detail.
 
     """
-    def __init__( self , x , u_0 , t_domain , dt=None , C=None , solver="lax" ):
+    def __init__( self , x , u_0 , t_domain , dt=None , C=None , solver="lax" , nu=0.0 ):
         """
         Initialize the Burger's equation object.
 
@@ -583,7 +583,7 @@ class burgersEquation:
 
                         Note as of 2024/10/31:  Must be uniform mesh.
 
-            u_0 [float]:    [?] The function values for the Burger's equation solve. Must
+            u_0 [float]:    [m/s] The function values for the Burger's equation solve. Must
                                 correspond to the mesh in "x".
 
             t_domain (float):   The (2x) entry tuple that describes the time domain that the
@@ -603,6 +603,9 @@ class burgersEquation:
                                     *"LAX": Lax method.
                                         
                                     Defaults to "lax". Not case sensitive.
+
+            nu (float, optional):   [m2/s] The dissipation of the Burger's equation. The default
+                                        is 0, which will be an inviscid case.
 
         """
 
@@ -651,8 +654,9 @@ class burgersEquation:
         # Set up solver
         #
         self.solver = solver.lower()
+        self.nu = nu
     
-    def solve( cls , N_spatialorder=1 , N_timeorder=1 , BC="consistent" ):
+    def solve( cls , N_spatialorder=1 , N_timeorder=1 , N_spatialBCorder=None , BC="consistent" ):
         """
         This method solves the Burger's equation for the object according to the inputs 
             to the object and method.
@@ -674,6 +678,11 @@ class burgersEquation:
             N_spatialorder (int, optional): Spatial order for the solve. Defaults to 1.
 
             N_timeorder (int, optional):    Time order for the solve. Defaults to 1.
+
+            N_spatialBCorder (int, optional):   The order of the boundary conditions of the 
+                                                    spatial gradients. Defaults to None, which 
+                                                    makes the boundary conditions gradients the half
+                                                    of "N_spatialorder".
         
         """
 
@@ -687,7 +696,12 @@ class burgersEquation:
         # Calculate C matrix
         #
         if cls.solver.lower()=="lax":
-            cls.C_matrix = (1/2) * spsr.dia_matrix( ( [ np.ones( cls.Nx - 1 ) , np.ones( cls.Nx - 1 ) ] , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
+            cls.C_matrix = (1/2) * spsr.dia_matrix( ( [ np.ones( cls.Nx ) , np.ones( cls.Nx ) ] , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
+
+            if not cls.nu==0:
+                cls.visc_grad = numericalGradient( 2 , ( N_spatialorder//2 , N_spatialorder//2 ) )
+                cls.visc_grad.formMatrix( cls.Nx )
+                cls.C_matrix = cls.C_matrix + cls.nu * cls.visc_grad.gradientMatrix
 
         #
         # Calculate D matrix
@@ -695,8 +709,35 @@ class burgersEquation:
         if cls.solver.lower()=="lax":
             cls.num_grad = numericalGradient( 1 , ( N_spatialorder//2 , N_spatialorder//2 ) )
             cls.num_grad.formMatrix( cls.Nx )
-            cls.D_matrix = cls.C * cls.num_grad.gradientMatrix
-            ### TODO: ADD in boundary modificiations
+            cls.D_matrix = cls.num_grad.gradientMatrix
+
+
+            if N_spatialBCorder:
+                cls.D_matrix = cls.D_matrix.tolil()
+
+                # The LHS boundary condition
+                for i in range( N_spatialorder//2 ):
+                    cls.num_grad_LHS = numericalGradient( 1 , ( 0 , N_spatialBCorder ) )
+                    cls.D_matrix[i,:]=0
+                    cls.D_matrix[i,i:(i+N_spatialBCorder+1)]=cls.num_grad_LHS.coeffs
+
+                # The RHS boundary condition
+                for i in range( N_spatialorder//2 ):
+                    #cls.num_grad_RHS = numericalGradient( 1 , ( N_spatialBCorder , 0 ) )
+                    cls.num_grad_RHS = numericalGradient( 1 , ( N_spatialorder-i , 0 ) )
+                    cls.D_matrix[-i-1,:]=0
+                    """
+                    if i==0:
+                        cls.D_matrix[-1,-1-N_spatialorder:]=cls.num_grad_RHS.coeffs
+                    else:
+                        cls.D_matrix[-i-1,-1-N_spatialorder-i:-i]=cls.num_grad_RHS.coeffs
+                    #"""
+                    cls.D_matrix[-i-1,-1-N_spatialorder+i:]=cls.num_grad_RHS.coeffs
+                #"""
+
+                cls.D_matrix = cls.D_matrix.todia()
+
+            cls.D_matrix = (cls.C) * cls.D_matrix
 
         #
         # Set up boundary conditions
@@ -706,10 +747,17 @@ class burgersEquation:
             cls.D_matrix = cls.D_matrix.tolil()
             cls.C_matrix[0,0]=1
             cls.C_matrix[0,1:]=0
-            cls.C_matrix[-1,-1]=0
-            cls.C_matrix[-1,:-1]=0
+            #cls.C_matrix[-1,:]=0
+            #cls.C_matrix[-1,-2]=1
+            cls.C_matrix[-1,-1]=1/2
+            cls.C_matrix[-1,:] = cls.C_matrix[-1,:].toarray() / np.sum( cls.C_matrix[-1,:].toarray() )
             cls.D_matrix[0,:]=0
-            cls.D_matrix[-1,:]=0
+            #cls.D_matrix[-1,:]=0
+            if not cls.nu==0:
+                cls.C_matrix[-1,:]=0
+                cls.C_matrix[-1,-1]=1
+                cls.D_matrix[-1,:]=0
+
             cls.C_matrix = cls.C_matrix.todia()
             cls.D_matrix = cls.D_matrix.todia()
 
@@ -720,6 +768,8 @@ class burgersEquation:
         cls.v = np.zeros_like( cls.u )
         cls.w = np.zeros_like( cls.u )
         cls.b = np.zeros_like( cls.u )
+        cls.b1 = np.zeros_like( cls.u )
+        cls.b2 = np.zeros_like( cls.u )
 
         #
         # Time stepping
@@ -730,12 +780,112 @@ class burgersEquation:
             cls.v[i,...] = cls.u[i,...]
 
             # Calculate w vector
-            cls.w[i,...] = (1/2) * ( cls.u[i,...] ** 2 )
+            cls.w[i,...] = ( cls.u[i,...] ** 2 )/2
 
             # Calculate b vector
-            cls.b[i,...] = cls.C_matrix.dot( cls.v[i,...] ) + cls.D_matrix.dot( cls.w[i,...] )
+            cls.b1[i,...] = cls.C_matrix.dot( cls.v[i,...] ) 
+            cls.b2[i,...] = cls.D_matrix.dot( cls.w[i,...] )
+            cls.b[i,...] = cls.b1[i,...] + cls.b2[i,...]
 
             # Solve u = A\b
             cls.u[i+1,:] = spsr.linalg.spsolve( cls.A_matrix , cls.b[i,...] )
 
         
+##################################################################################################
+#
+# Advection Equation Object
+#
+##################################################################################################
+
+class advectionEquation:
+    """
+    This object allows the user to solve the advection equation.
+
+    """
+    def __init__( self , x , u_0 , c , t_domain , dt=None , C=None , solver="lax" , nu=0.0 ):
+        """
+        Initialize the Advectio, equation object.
+
+        Args:
+            x [float]:  [m] The spatial mesh that will be used for the Burger's equation solve.
+
+                        Note as of 2024/10/31:  Must be uniform mesh.
+
+            u_0 [float]:    [?] The function values for the Burger's equation solve. Must
+                                correspond to the mesh in "x".
+
+            c (float):  [m/s] The velocity of the wave/scalar that is being advected.
+
+            t_domain (float):   The (2x) entry tuple that describes the time domain that the
+                                    solve will be preformed over. The entires must be:
+
+                                ( t_start , t_end )
+
+            dt (float, optional):   [s] The uniform time step. Must be numerical value if "C" is
+                                        None. Defaults to None.
+
+            C (float, optional):    [m/s] The C factor of the Burger's equation solve. Must be
+                                        numerical value if "dt" is None. Defaults to None.
+
+            solver (str, optional): The solver that will be used to solve the Burger's equation.
+                                        The valid options are:
+
+                                    *"LAX": Lax method.
+                                        
+                                    Defaults to "lax". Not case sensitive.
+
+            nu (float, optional):   [m2/s] The dissipation of the Burger's equation. The default
+                                        is 0, which will be an inviscid case.
+
+        """
+
+        if not np.shape( x )==np.shape( u_0 ):
+            raise ValueError("x and u_0 must be the same shape.")
+        
+        #
+        # Write domain
+        #
+        self.x = x
+        self.Nx = np.shape( x )[0]
+
+        dx_s = np.gradient( self.x )
+        ddx_s = np.gradient( dx_s )
+        if ( np.sum( ddx_s ) / np.sum( dx_s ) ) > 1e-3 :
+            raise ValueError( "x is not uniform enough." )
+        else:
+            self.dx = np.mean( dx_s )
+
+        #
+        # Sort out time stepping & dissipation
+        #
+        if C:
+            self.C = C
+            if dt:
+                raise ValueError( "S is present along with dt. Problem is overconstrained. Only one of C and dt must be present." )
+            else:
+                self.dt = self.C * self.dx
+        else:
+            self.dt = dt
+            self.C = self.dt / self.dx
+
+        #
+        # Set up time domain
+        #
+        self.t = np.arange( t_domain[0] , t_domain[-1] , self.dt )
+        self.Nt = len( self.t )
+
+        #
+        # Set up the function values
+        #
+        self.u = np.zeros( ( self.Nt , self.Nx ) )
+        self.u[0,...] = u_0
+        self.c = c
+
+        #
+        # Set up solver
+        #
+        self.solver = solver.lower()
+        self.nu = nu
+
+    #def solve( cls ):
+
