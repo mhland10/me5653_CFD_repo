@@ -717,27 +717,34 @@ class burgersEquation:
 
                 # The LHS boundary condition
                 for i in range( N_spatialorder//2 ):
-                    cls.num_grad_LHS = numericalGradient( 1 , ( 0 , N_spatialBCorder ) )
+                    #print("i:{x}".format(x=i))
+                    #N_LHS_order = N_spatialorder
+                    N_LHS_order = N_spatialBCorder
+                    cls.num_grad_LHS = numericalGradient( 1 , ( i , N_LHS_order-i ) )
                     cls.D_matrix[i,:]=0
-                    cls.D_matrix[i,i:(i+N_spatialBCorder+1)]=cls.num_grad_LHS.coeffs
-
-                # The RHS boundary condition
-                for i in range( N_spatialorder//2 ):
-                    #cls.num_grad_RHS = numericalGradient( 1 , ( N_spatialBCorder , 0 ) )
-                    cls.num_grad_RHS = numericalGradient( 1 , ( N_spatialorder-i , 0 ) )
-                    cls.D_matrix[-i-1,:]=0
-                    """
-                    if i==0:
-                        cls.D_matrix[-1,-1-N_spatialorder:]=cls.num_grad_RHS.coeffs
-                    else:
-                        cls.D_matrix[-i-1,-1-N_spatialorder-i:-i]=cls.num_grad_RHS.coeffs
                     #"""
-                    cls.D_matrix[-i-1,-1-N_spatialorder+i:]=cls.num_grad_RHS.coeffs
+                    cls.D_matrix[i,i:i+N_LHS_order+1]=cls.num_grad_LHS.coeffs
+                    #"""
+                    #cls.D_matrix[i,i:(i+N_spatialBCorder+1)]=cls.num_grad_LHS.coeffs
+
+                # The RHS boundary condition 
+                for i in range( N_spatialorder//2 ):
+                    #N_RHS_order = N_spatialorder
+                    N_RHS_order = N_spatialBCorder
+                    cls.num_grad_RHS = numericalGradient( 1 , ( N_RHS_order-i , i ) )
+                    cls.D_matrix[-i-1,:]=0
+                    #"""
+                    if i==0:
+                        cls.D_matrix[-1,-1-N_RHS_order:]=cls.num_grad_RHS.coeffs
+                    else:
+                        cls.D_matrix[-i-1,-1-N_RHS_order-i:-i]=cls.num_grad_RHS.coeffs
+                    #"""
+                    #cls.D_matrix[-i-1,-1-N_RHS_order:]=cls.num_grad_RHS.coeffs
                 #"""
 
                 cls.D_matrix = cls.D_matrix.todia()
 
-            cls.D_matrix = (cls.C) * cls.D_matrix
+            cls.D_matrix = -(cls.C) * cls.D_matrix
 
         #
         # Set up boundary conditions
@@ -747,9 +754,9 @@ class burgersEquation:
             cls.D_matrix = cls.D_matrix.tolil()
             cls.C_matrix[0,0]=1
             cls.C_matrix[0,1:]=0
-            #cls.C_matrix[-1,:]=0
+            cls.C_matrix[-1,:]=0
             #cls.C_matrix[-1,-2]=1
-            cls.C_matrix[-1,-1]=1/2
+            cls.C_matrix[-1,-1]=1
             cls.C_matrix[-1,:] = cls.C_matrix[-1,:].toarray() / np.sum( cls.C_matrix[-1,:].toarray() )
             cls.D_matrix[0,:]=0
             #cls.D_matrix[-1,:]=0
@@ -802,16 +809,16 @@ class advectionEquation:
     This object allows the user to solve the advection equation.
 
     """
-    def __init__( self , x , u_0 , c , t_domain , dt=None , C=None , solver="lax" , nu=0.0 ):
+    def __init__( self , x , u_0 , c , t_domain , dt=None , C=None , solver="upwind" , nu=0.0 ):
         """
-        Initialize the Advectio, equation object.
+        Initialize the Advection equation object.
 
         Args:
-            x [float]:  [m] The spatial mesh that will be used for the Burger's equation solve.
+            x [float]:  [m] The spatial mesh that will be used for the Advection equation solve.
 
                         Note as of 2024/10/31:  Must be uniform mesh.
 
-            u_0 [float]:    [?] The function values for the Burger's equation solve. Must
+            u_0 [float]:    [?] The function values for the Advection equation solve. Must
                                 correspond to the mesh in "x".
 
             c (float):  [m/s] The velocity of the wave/scalar that is being advected.
@@ -824,17 +831,17 @@ class advectionEquation:
             dt (float, optional):   [s] The uniform time step. Must be numerical value if "C" is
                                         None. Defaults to None.
 
-            C (float, optional):    [m/s] The C factor of the Burger's equation solve. Must be
+            C (float, optional):    [m/s] The C factor of the Advection equation solve. Must be
                                         numerical value if "dt" is None. Defaults to None.
 
-            solver (str, optional): The solver that will be used to solve the Burger's equation.
+            solver (str, optional): The solver that will be used to solve the Advection equation.
                                         The valid options are:
 
-                                    *"LAX": Lax method.
+                                    *"upwind": Upwind method.
                                         
-                                    Defaults to "lax". Not case sensitive.
+                                    Defaults to "upwind". Not case sensitive.
 
-            nu (float, optional):   [m2/s] The dissipation of the Burger's equation. The default
+            nu (float, optional):   [m2/s] The dissipation of the Advection equation. The default
                                         is 0, which will be an inviscid case.
 
         """
@@ -887,5 +894,119 @@ class advectionEquation:
         self.solver = solver.lower()
         self.nu = nu
 
-    #def solve( cls ):
+    def solve( cls , N_spatialorder=1 , N_timeorder=1 , N_spatialBCorder=None , BC="consistent" ):
+        """
+        This method solves the Burger's equation for the object according to the inputs 
+            to the object and method.
+
+        There are a few things to note with the method. First, the system of equations is
+            described as linear equations stored in a diagonal-sparse matrix supplied by SciPy.
+            This is done to avoid using extremely large matrices that are stored.
+
+        The system of linear equations can be simply represented as follows:
+
+        [A]<u> = <b> = [C]<v> + [D]<w>
+
+        Here, <v> is the previous time step, and <w> is the time step before that.
+
+        This method will march in time
+
+        Args:
+            N_spatialorder (int, optional): Spatial order for the solve. Defaults to 1.
+
+            N_timeorder (int, optional):    Time order for the solve. Defaults to 1.
+
+            N_spatialBCorder (int, optional):   The order of the boundary conditions of the 
+                                                    spatial gradients. Defaults to None, which 
+                                                    makes the boundary conditions gradients the half
+                                                    of "N_spatialorder".
+        
+        """
+
+        #
+        # Calculate A matrix
+        #
+        if cls.solver.lower()=="upwind":
+            cls.A_matrix = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        if cls.solver.lower()=="leapfrog":
+            cls.A_matrix = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        #
+        # Calculate C matrix
+        #
+        if cls.solver.lower()=="upwind":
+            cls.C_matrix = cls.c * cls.C * spsr.dia_matrix( ( [ np.ones( cls.Nx ) , -np.ones( cls.Nx ) ] , [-1,0] ) , shape = ( cls.Nx , cls.Nx ) ) + spsr.dia_matrix( ( np.ones( cls.Nx ) , 0 ) , shape = ( cls.Nx , cls.Nx ) )
+
+            if not cls.nu==0:
+                cls.visc_grad = numericalGradient( 2 , ( N_spatialorder//2 , N_spatialorder//2 ) )
+                cls.visc_grad.formMatrix( cls.Nx )
+                cls.C_matrix = cls.C_matrix + cls.nu * cls.visc_grad.gradientMatrix
+
+        if cls.solver.lower()=="leapfrog":
+            cls.C_matrix = -cls.c * cls.C * spsr.dia_matrix( ( [ -np.ones( cls.Nx ) , np.ones( cls.Nx ) ] , [-1,1] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        #
+        # Calculate D matrix
+        #
+        if cls.solver.lower()=="upwind":
+            cls.D_matrix = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+        if cls.solver.lower()=="leapfrog":
+            cls.D_matrix = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+
+
+        #
+        # Set up boundary conditions
+        #
+        if BC.lower()=="consistent":
+            cls.C_matrix = cls.C_matrix.tolil()
+            cls.D_matrix = cls.D_matrix.tolil()
+
+            if cls.solver.lower()=="upwind":
+                cls.C_matrix[0,0]=1
+                cls.C_matrix[0,1:]=0
+            
+            if cls.solver.lower()=="leapfrog":
+                cls.C_matrix[0,0]=1
+                cls.C_matrix[0,1:]=0
+                cls.C_matrix[-1,-2]=1/2
+                cls.D_matrix[0,:]=0
+                cls.D_matrix[-1,-1]=1/2
+
+
+            cls.C_matrix = cls.C_matrix.todia()
+            cls.D_matrix = cls.D_matrix.todia()
+
+        
+        #
+        # Initialize vectors
+        #
+        cls.v = np.zeros_like( cls.u )
+        cls.w = np.zeros_like( cls.u )
+        cls.b = np.zeros_like( cls.u )
+        cls.b1 = np.zeros_like( cls.u )
+        cls.b2 = np.zeros_like( cls.u )
+
+        #
+        # Time stepping
+        #
+        for i in range( len( cls.t )-1 ):
+
+            # Calculate v vector
+            cls.v[i,...] = cls.u[i,...]
+
+            # Calculate w vector
+            if i==0:
+                cls.w[i,...] = cls.u[i,...]
+            else:
+                cls.w[i,...] = cls.u[i-1,...]
+
+            # Calculate b vector
+            cls.b1[i,...] = cls.C_matrix.dot( cls.v[i,...] ) 
+            cls.b2[i,...] = cls.D_matrix.dot( cls.w[i,...] )
+            cls.b[i,...] = cls.b1[i,...] + cls.b2[i,...]
+
+            # Solve u = A\b
+            cls.u[i+1,:] = spsr.linalg.spsolve( cls.A_matrix , cls.b[i,...] )
 
