@@ -125,7 +125,8 @@ class KS:
         self.f = np.zeros_like( self.u )
 
         self.Re_cell = np.max( np.abs( self.u ) ) * self.dx / -self.alpha
-        self.KS_cell = np.max( np.abs( self.u ) ) * ( self.dx ** 3 ) / self.gamma
+        self.c_cell = np.sqrt( self.gamma *  np.max( np.abs( self.u ) ) / ( self.dx ** 3 ) )
+        self.Ma_cell = np.max( np.abs( self.u ) ) / self.c_cell
 
     def solve( cls , n_xOrder=4 , n_tOrder=4 , bc_u=(0,0) , bc_dudx=(0,0) , bc_d2udx2=(None,None) , bc_d3udx3=(None,None) , bc_d4udx4=(None,None) , bc_xOrder=1 , zero_tol=1e-12 ):
         """
