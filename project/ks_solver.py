@@ -124,7 +124,10 @@ class KS:
         self.v = np.zeros_like( self.u )
         self.f = np.zeros_like( self.u )
 
-    def solve( cls , n_xOrder=4 , n_tOrder=4 , bc_u=(0,0) , bc_dudx=(0,0) , bc_d2udx2=(None,None) , bc_d3udx3=(None,None) , bc_d4udx4=(None,None) , bc_xOrder=1 ):
+        self.Re_cell = np.max( np.abs( self.u ) ) * self.dx / -self.alpha
+        self.KS_cell = np.max( np.abs( self.u ) ) * ( self.dx ** 3 ) / self.gamma
+
+    def solve( cls , n_xOrder=4 , n_tOrder=4 , bc_u=(0,0) , bc_dudx=(0,0) , bc_d2udx2=(None,None) , bc_d3udx3=(None,None) , bc_d4udx4=(None,None) , bc_xOrder=1 , zero_tol=1e-12 ):
         """
         Solve the KS equation as initialized.
 
@@ -187,14 +190,16 @@ class KS:
         cls.numgradient_LHS_advect = numericalGradient( 1 , ( 0 , n_xOrder ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.A_advect[i,:]=0
-            cls.A_advect[i,i:i+n_xOrder+1] = cls.numgradient_LHS_advect.coeffs
+            cls.A_advect[i,i:i+n_xOrder+1] = cls.numgradient_LHS_advect.coeffs / cls.dx
         cls.numgradient_RHS_advect = numericalGradient( 1 , ( n_xOrder , 0 ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.A_advect[-i-1,:]=0
             if i>0:
-                cls.A_advect[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_advect.coeffs
+                cls.A_advect[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_advect.coeffs / cls.dx
             else:
-                cls.A_advect[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_advect.coeffs
+                cls.A_advect[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_advect.coeffs / cls.dx
+        # Fix float zeros
+        cls.A_advect[np.abs(cls.A_advect)*cls.dx<=zero_tol]=0
         cls.A_advect = cls.A_advect.todia()
 
         #
@@ -208,14 +213,14 @@ class KS:
         cls.numgradient_LHS_diffuse = numericalGradient( 2 , ( 0 , n_xOrder ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_diffuse[i,:]=0
-            cls.B_diffuse[i,i:i+n_xOrder+1] = cls.numgradient_LHS_diffuse.coeffs
-        cls.numgradient_RHS_diffuse = numericalGradient( 1 , ( n_xOrder , 0 ) )
+            cls.B_diffuse[i,i:i+n_xOrder+1] = cls.numgradient_LHS_diffuse.coeffs / ( cls.dx ** 2)
+        cls.numgradient_RHS_diffuse = numericalGradient( 2 , ( n_xOrder , 0 ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_diffuse[-i-1,:]=0
             if i>0:
-                cls.B_diffuse[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_diffuse.coeffs
+                cls.B_diffuse[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_diffuse.coeffs / ( cls.dx ** 2)
             else:
-                cls.B_diffuse[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_diffuse.coeffs
+                cls.B_diffuse[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_diffuse.coeffs / ( cls.dx ** 2)
         cls.B_diffuse = cls.B_diffuse.todia()  
 
         #
@@ -229,14 +234,14 @@ class KS:
         cls.numgradient_LHS_third = numericalGradient( 3 , ( 0 , n_xOrder ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_third[i,:]=0
-            cls.B_third[i,i:i+n_xOrder+1] = cls.numgradient_LHS_third.coeffs
+            cls.B_third[i,i:i+n_xOrder+1] = cls.numgradient_LHS_third.coeffs / ( cls.dx ** 3 )
         cls.numgradient_RHS_third = numericalGradient( 3 , ( n_xOrder , 0 ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_third[-i-1,:]=0
             if i>0:
-                cls.B_third[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_third.coeffs
+                cls.B_third[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_third.coeffs / ( cls.dx ** 3 )
             else:
-                cls.B_third[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_third.coeffs
+                cls.B_third[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_third.coeffs / ( cls.dx ** 3 )
         cls.B_third = cls.B_third.todia() 
 
         #
@@ -250,14 +255,14 @@ class KS:
         cls.numgradient_LHS_fourth = numericalGradient( 4 , ( 0 , n_xOrder ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_fourth[i,:]=0
-            cls.B_fourth[i,i:i+n_xOrder+1] = cls.numgradient_LHS_fourth.coeffs
+            cls.B_fourth[i,i:i+n_xOrder+1] = cls.numgradient_LHS_fourth.coeffs / ( cls.dx ** 4 )
         cls.numgradient_RHS_fourth = numericalGradient( 4 , ( n_xOrder , 0 ) )
         for i in range( int(np.rint(n_xOrder/2)) ):
             cls.B_fourth[-i-1,:]=0
             if i>0:
-                cls.B_fourth[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_fourth.coeffs
+                cls.B_fourth[-i-1,-(i+n_xOrder+1):-i] = cls.numgradient_RHS_fourth.coeffs / ( cls.dx ** 4 )
             else:
-                cls.B_fourth[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_fourth.coeffs
+                cls.B_fourth[-i-1,-(n_xOrder+1):] = cls.numgradient_RHS_fourth.coeffs / ( cls.dx ** 4 )
         cls.B_fourth = cls.B_fourth.todia()
 
         #
@@ -415,15 +420,15 @@ class KS:
                     cls.D[-1-bc_RHS_count,-(bc_xOrder+1):] = numgradient_BC.coeffs
                     cls.E[-1-bc_RHS_count,-1] = 1
                     bc_RHS_count += 1
-            if bc_count>4:
-                raise ValueError( "Too many boundary conditions present, only 4x are allowed." )
-            elif bc_count<4:
-                raise ValueError( "Too few boundary conditions present, 4x are required.")
-            cls.A.tocsr()
-            cls.B.tocsr()
-            cls.D.tocsr()
-            cls.E.tocsr()
-            cls.Ee = cls.E.dot( cls.e )
+        if bc_count>4:
+            raise ValueError( "Too many boundary conditions present, only 4x are allowed." )
+        elif bc_count<4:
+            raise ValueError( "Too few boundary conditions present, 4x are required.")
+        cls.A.tocsr()
+        cls.B.tocsr()
+        cls.D.tocsr()
+        cls.E.tocsr()
+        cls.Ee = cls.E.dot( cls.e )
             
         #
         # Time stepping
@@ -434,9 +439,9 @@ class KS:
             # Set up RHS
             #
             cls.v[i,:] = (cls.u[i,:]**2)/2
-            Av_k = cls.A.dot( cls.v[i,:] )
-            Bu_k = cls.B.dot( cls.u[i,:] )
-            cls.f[i,:] = Av_k + Bu_k + cls.Ee
+            cls.Av_k = cls.A.dot( cls.v[i,:] )
+            cls.Bu_k = cls.B.dot( cls.u[i,:] )
+            cls.f[i,:] = cls.Av_k + cls.Bu_k + cls.Ee
 
             #
             # Time step
@@ -444,6 +449,9 @@ class KS:
             if i<=n_tOrder or n_tOrder==1:
 
                 cls.phi[i,:] = cls.f[i,:] * cls.dt + cls.u[i,:]
+                cls.phi[i,np.abs(cls.phi[i,:])<=zero_tol]=0
+                cls.phi[i,-2:]=cls.Ee[-2:]
+                cls.phi[i,:2]=cls.Ee[:2]
                 cls.u[i+1,:] = spsr.linalg.spsolve( cls.D , cls.phi[i,:] )
 
             elif n_tOrder==4:
@@ -453,7 +461,12 @@ class KS:
                 # Perform virtual step (1)
                 #
                 cls.phi_1[i,:] = (cls.dt/2)*cls.R_n[i,:] + cls.u[i,:]
-                cls.u_1[i,:] = cls.phi_1[i,:]
+                #cls.phi_1[i,:] = (cls.dt/2)*spsr.linalg.spsolve( cls.D , cls.R_n[i,:] ) + cls.u[i,:]
+                #cls.u_1[i,:] = cls.phi_1[i,:]
+                cls.phi_1[i,np.abs(cls.phi_1[i,:])<=zero_tol]=0
+                cls.phi_1[i,-2:]=cls.Ee[-2:]
+                cls.phi_1[i,:2]=cls.Ee[:2]
+                cls.u_1[i,:] = spsr.linalg.spsolve( cls.D , cls.phi_1[i,:] )
                 cls.v_1[i,:] = (cls.u_1[i,:] ** 2)/2
                 cls.R_1[i,:] = cls.A.dot( cls.v_1[i,:] ) + cls.B.dot( cls.u_1[i,:] ) + cls.Ee
 
@@ -461,7 +474,12 @@ class KS:
                 # Perform virtual step (2)
                 #
                 cls.phi_2[i,:] = (cls.dt/2)*cls.R_1[i,:] + cls.u[i,:]
-                cls.u_2[i,:] = cls.phi_2[i,:]
+                #cls.phi_2[i,:] = (cls.dt/2)*spsr.linalg.spsolve( cls.D , cls.R_1[i,:] ) + cls.u[i,:]
+                #cls.u_2[i,:] = cls.phi_2[i,:]
+                cls.phi_2[i,np.abs(cls.phi_2[i,:])<=zero_tol]=0
+                cls.phi_2[i,-2:]=cls.Ee[-2:]
+                cls.phi_2[i,:2]=cls.Ee[:2]
+                cls.u_2[i,:] = spsr.linalg.spsolve( cls.D , cls.phi_2[i,:] )
                 cls.v_2[i,:] = (cls.u_2[i,:] ** 2)/2
                 cls.R_2[i,:] = cls.A.dot( cls.v_2[i,:] ) + cls.B.dot( cls.u_2[i,:] ) + cls.Ee
 
@@ -469,7 +487,12 @@ class KS:
                 # Perform virtual step (3)
                 #
                 cls.phi_3[i,:] = cls.dt*cls.R_2[i,:] + cls.u[i,:]
-                cls.u_3[i,:] = cls.phi_3[i,:]
+                #cls.phi_3[i,:] = cls.dt*spsr.linalg.spsolve( cls.D , cls.R_2[i,:] ) + cls.u[i,:]
+                #cls.u_3[i,:] = cls.phi_3[i,:]
+                cls.phi_3[i,np.abs(cls.phi_3[i,:])<=zero_tol]=0
+                cls.phi_3[i,-2:]=cls.Ee[-2:]
+                cls.phi_3[i,:2]=cls.Ee[:2]
+                cls.u_3[i,:] = spsr.linalg.spsolve( cls.D , cls.phi_3[i,:] )
                 cls.v_3[i,:] = (cls.u_3[i,:] ** 2)/2
                 cls.R_3[i,:] = cls.A.dot( cls.v_3[i,:] ) + cls.B.dot( cls.u_3[i,:] ) + cls.Ee
 
@@ -477,6 +500,9 @@ class KS:
                 # Finish the time step
                 #
                 cls.phi[i,:] = cls.u[i,:] + (cls.dt/6)*( cls.R_n[i,:] + 2*cls.R_1[i,:] + 2*cls.R_2[i,:] + cls.R_3[i,:] )
+                cls.phi[i,np.abs(cls.phi[i,:])<=zero_tol]=0
+                cls.phi[i,-2:]=cls.Ee[-2:]
+                cls.phi[i,:2]=cls.Ee[:2]
                 cls.u[i+1,:] = spsr.linalg.spsolve( cls.D , cls.phi[i,:] )
 
                 
