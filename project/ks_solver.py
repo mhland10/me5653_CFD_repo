@@ -280,7 +280,7 @@ class KS:
         #
         # Create matrix for the Neumann BC's
         #
-        cls.E = spsr.dia_matrix( ( np.zeros( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
+        cls.E = spsr.dia_matrix( ( np.ones( cls.Nx ) , [0] ) , shape = ( cls.Nx , cls.Nx ) )
         cls.e = np.zeros( cls.Nx )
 
         #
@@ -345,9 +345,9 @@ class KS:
                     bc_RHS_count += 1
         # Diffusion boundary condition
         if bc_d2udx2[0]:
-            cls.e[0] = bc_d2udx2[0]
+            cls.e[bc_LHS_count] = bc_d2udx2[0]
         if bc_d2udx2[-1]:
-            cls.e[-1] = bc_d2udx2[-1]
+            cls.e[-1-bc_RHS_count] = bc_d2udx2[-1]
         for i , bc in enumerate( bc_d2udx2 ):
             if bc or bc==0:
                 bc_count += 1
@@ -371,9 +371,9 @@ class KS:
                     bc_RHS_count += 1
         # Third order derivative boundary condition
         if bc_d3udx3[0]:
-            cls.e[0] = bc_d3udx3[0]
+            cls.e[bc_LHS_count] = bc_d3udx3[0]
         if bc_d3udx3[-1]:
-            cls.e[-1] = bc_d3udx3[-1]
+            cls.e[-1-bc_RHS_count] = bc_d3udx3[-1]
         for i , bc in enumerate( bc_d3udx3 ):
             if bc or bc==0:
                 bc_count += 1
@@ -397,9 +397,9 @@ class KS:
                     bc_RHS_count += 1
         # Fourth order derivative boundary condition
         if bc_d4udx4[0]:
-            cls.e[0] = bc_d4udx4[0]
+            cls.e[bc_LHS_count] = bc_d4udx4[0]
         if bc_d4udx4[-1]:
-            cls.e[-1] = bc_d4udx4[-1]
+            cls.e[-1-bc_RHS_count] = bc_d4udx4[-1]
         for i , bc in enumerate( bc_d4udx4 ):
             if bc or bc==0:
                 bc_count += 1
@@ -430,6 +430,7 @@ class KS:
         cls.D.tocsr()
         cls.E.tocsr()
         cls.Ee = cls.E.dot( cls.e )
+        #cls.Ee[np.abs(cls.Ee)<=zero_tol]=0
             
         #
         # Time stepping
